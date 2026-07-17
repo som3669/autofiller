@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AutoFiller",
+  "version": "1.0.0",
+  "description": "Fill forms in one click. Save your profile and custom field rules, then fill any page — passwords never touched.",
+  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AutoFiller",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "options_page": "options.html",
+  "background": { "service_worker": "sw.js" },
+  "commands": {
+    "fill-page": {
+      "suggested_key": { "default": "Alt+Shift+F" },
+      "description": "Fill the current page"
+    }
+  }
+}

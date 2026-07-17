@@ -1,0 +1,38 @@
+CHROME WEB STORE — PRIVACY PRACTICES TAB (AutoFiller)
+
+--- Single purpose ---
+AutoFiller fills web forms with the user's saved profile and custom field rules,
+on demand. When the user clicks the button, presses the shortcut, or uses the
+right-click menu, it fills matching fields on the current page.
+
+--- Permission justifications ---
+
+storage:
+Used to save the user's own profile data (name, email, address, etc.) and custom
+field rules on the user's device.
+
+activeTab:
+Used to access the currently active tab only when the user triggers a fill, so the
+extension can fill the form the user is looking at.
+
+scripting:
+Used to inject a one-off script into the current tab (only on user action) that
+reads the saved profile/rules and fills matching form fields.
+
+contextMenus:
+Used to add the right-click menu item "AutoFiller: fill this page".
+
+--- Remote code ---
+No remote code is used. All JavaScript is included in the extension package.
+
+--- Data usage disclosures ---
+- Collects or uses personal or sensitive user data?  Stored locally only; not
+  collected or transmitted by the extension.
+- Data sold to third parties:  NO
+- Data used for unrelated purposes:  NO
+- Data used for creditworthiness / lending:  NO
+- Remote code:  NO
+
+Note: The profile data (name, email, address) is entered by the user and stored
+on their own device via chrome.storage. It is never sent to any server by the
+extension. Passwords are never stored or filled.
