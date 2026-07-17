@@ -5,8 +5,7 @@
   "description": "Fill forms in one click with realistic fake test data — or your own saved profile. Built for developers, QA, and fast form testing. Passwords never touched.",
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
   "action": {
-    "default_popup": "popup.html",
-    "default_title": "AutoFiller",
+    "default_title": "AutoFiller — click to fill with fake data",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

@@ -55,6 +55,13 @@
     </div>
 
     <h2>Your profile</h2>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
+      <label for="profileSel" style="color:var(--muted); font-size:12px">Profile:</label>
+      <select id="profileSel" style="flex:1; min-width:140px"></select>
+      <button class="btn ghost" id="profNew" title="New profile">＋ New</button>
+      <button class="btn ghost" id="profRename" title="Rename">✎</button>
+      <button class="btn ghost" id="profDelete" title="Delete">🗑</button>
+    </div>
     <div class="grid" id="profile">
       <div class="field"><label for="firstName">First name</label><input type="text" id="firstName"></div>
       <div class="field"><label for="lastName">Last name</label><input type="text" id="lastName"></div>
@@ -93,6 +100,9 @@
     </div>
     <div class="row" style="border-top:0; padding:8px 0"><span>Ignore fields that already have content</span>
       <label class="switch"><input type="checkbox" id="fIgnoreFilled"><span class="slider"></span></label>
+    </div>
+    <div class="row" style="border-top:0; padding:8px 0"><span>Highlight filled fields (green flash)</span>
+      <label class="switch"><input type="checkbox" id="fHighlight"><span class="slider"></span></label>
     </div>
 
     <div class="field full" style="margin-top:8px">
@@ -143,7 +153,9 @@
     <div style="display:flex; gap:10px">
       <button class="btn" id="exportBtn">⬇ Export settings</button>
       <button class="btn ghost" id="importBtn">⬆ Import settings</button>
+      <button class="btn ghost" id="importFF">⬆ Import from Fake Filler</button>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <input type="file" id="importFFFile" accept="application/json,.json" hidden>
     </div>
   </div>
 

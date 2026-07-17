@@ -15,7 +15,8 @@ const DEFAULT_FAKE = {
   confirmMatch: ["confirm", "reenter", "retype", "repeat", "secondary"],
   agreeMatch: ["agree", "terms", "conditions"],
   matchUsing: { id: true, name: true, label: true, ariaLabel: true, ariaLabelledby: true, class: false, placeholder: false },
-  maxLength: 20
+  maxLength: 20,
+  highlight: true                   // flash filled fields green
 };
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -23,16 +24,21 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({ id: "fake", title: "Fill all inputs (fake data)", contexts: ["page", "editable", "action"] });
     chrome.contextMenus.create({ id: "fake-form", title: "Fill this form (fake data)", contexts: ["editable"] });
     chrome.contextMenus.create({ id: "fake-input", title: "Fill this input (fake data)", contexts: ["editable"] });
+    chrome.contextMenus.create({ id: "fake-submit", title: "Fill all & submit", contexts: ["page", "editable", "action"] });
     chrome.contextMenus.create({ id: "fill", title: "Fill with my profile", contexts: ["page", "editable", "action"] });
+    chrome.contextMenus.create({ id: "sep", type: "separator", contexts: ["action"] });
+    chrome.contextMenus.create({ id: "opts", title: "Settings…", contexts: ["action"] });
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "opts") { chrome.runtime.openOptionsPage(); return; }
   if (!tab) return;
   if (info.menuItemId === "fill") fillTab(tab);
-  else if (info.menuItemId === "fake") fakeFillTab(tab, "all");
-  else if (info.menuItemId === "fake-form") fakeFillTab(tab, "form");
-  else if (info.menuItemId === "fake-input") fakeFillTab(tab, "input");
+  else if (info.menuItemId === "fake") fakeFillTab(tab, "all", false);
+  else if (info.menuItemId === "fake-form") fakeFillTab(tab, "form", false);
+  else if (info.menuItemId === "fake-input") fakeFillTab(tab, "input", false);
+  else if (info.menuItemId === "fake-submit") fakeFillTab(tab, "all", true);
 });
 chrome.commands.onCommand.addListener((cmd) => {
   if (cmd === "fill-page") fillActive();
@@ -41,10 +47,25 @@ chrome.commands.onCommand.addListener((cmd) => {
   else if (cmd === "fill-input") fakeFillActive("input");
 });
 
+// Clicking the toolbar icon = instant fake fill of the whole page.
+chrome.action.onClicked.addListener((tab) => { if (tab) fakeFillTab(tab, "all", false); });
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "fillActive") { fillActive().then((r) => sendResponse(r)); return true; }
-  if (msg.type === "fakeFillActive") { fakeFillActive(msg.scope || "all").then((r) => sendResponse(r)); return true; }
+  if (msg.type === "fakeFillActive") { fakeFillActive(msg.scope || "all", !!msg.doSubmit).then((r) => sendResponse(r)); return true; }
 });
+
+// Active profile (supports multiple named profiles; falls back to legacy single profile).
+async function getActiveProfile() {
+  const { profiles = null, activeProfile = "Default", profile = {} } = await chrome.storage.sync.get({ profiles: null, activeProfile: "Default", profile: {} });
+  if (profiles && profiles[activeProfile]) return profiles[activeProfile];
+  if (profiles) { const first = Object.values(profiles)[0]; if (first) return first; }
+  return profile || {};
+}
+async function getHighlight() {
+  const { fakeSettings = {} } = await chrome.storage.sync.get({ fakeSettings: {} });
+  return fakeSettings.highlight !== false; // default on
+}
 
 async function fillActive() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -53,14 +74,16 @@ async function fillActive() {
 
 async function fillTab(tab) {
   if (!tab.url || !/^https?:/.test(tab.url)) return { filled: 0, error: "unsupported page" };
-  const { profile = {}, rules = [] } = await chrome.storage.sync.get({ profile: {}, rules: [] });
+  const profile = await getActiveProfile();
+  const { rules = [] } = await chrome.storage.sync.get({ rules: [] });
+  const highlight = await getHighlight();
   let host = ""; try { host = new URL(tab.url).hostname; } catch {}
   const applicable = rules.filter((r) => !r.site || r.site === host);
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: fillPage,
-      args: [{ ...DEFAULT_PROFILE, ...profile }, applicable]
+      args: [{ ...DEFAULT_PROFILE, ...profile }, applicable, highlight]
     });
     const filled = results.reduce((n, r) => n + ((r.result && r.result.filled) || 0), 0);
     return { filled };
@@ -69,12 +92,12 @@ async function fillTab(tab) {
   }
 }
 
-async function fakeFillActive(scope) {
+async function fakeFillActive(scope, doSubmit) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab ? fakeFillTab(tab, scope) : { filled: 0, error: "no tab" };
+  return tab ? fakeFillTab(tab, scope, doSubmit) : { filled: 0, error: "no tab" };
 }
 
-async function fakeFillTab(tab, scope) {
+async function fakeFillTab(tab, scope, doSubmit) {
   if (!tab.url || !/^https?:/.test(tab.url)) return { filled: 0, error: "unsupported page" };
   const { fakeSettings = {} } = await chrome.storage.sync.get({ fakeSettings: {} });
   const settings = { ...DEFAULT_FAKE, ...fakeSettings, matchUsing: { ...DEFAULT_FAKE.matchUsing, ...(fakeSettings.matchUsing || {}) } };
@@ -82,7 +105,7 @@ async function fakeFillTab(tab, scope) {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: fakeFillPage,
-      args: [settings, scope || "all"]
+      args: [settings, scope || "all", settings.highlight !== false, !!doSubmit]
     });
     const filled = results.reduce((n, r) => n + ((r.result && r.result.filled) || 0), 0);
     return { filled };
@@ -92,7 +115,7 @@ async function fakeFillTab(tab, scope) {
 }
 
 // ---- Injected into the page. Must be fully self-contained. ----
-function fillPage(profile, rules) {
+function fillPage(profile, rules, highlight) {
   // Map profile keys to autocomplete tokens + keyword hints.
   const FIELDS = {
     email:     { types: ["email"], auto: ["email"], kw: ["email", "e-mail"] },
@@ -145,6 +168,42 @@ function fillPage(profile, rules) {
     }
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    if (highlight) flash(el);
+  }
+  function flash(el) {
+    try {
+      const prev = el.style.outline, prevT = el.style.transition;
+      el.style.transition = "outline .12s ease"; el.style.outline = "2px solid #22c55e";
+      setTimeout(() => { el.style.outline = prev; el.style.transition = prevT; }, 700);
+    } catch {}
+  }
+
+  // ---- generators for typed custom rules ----
+  const rnd = (n) => Math.floor(Math.random() * n);
+  const pick = (a) => a[rnd(a.length)];
+  const LOREM = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt".split(" ");
+  const words = (n) => Array.from({ length: Math.max(1, n) }, () => pick(LOREM)).join(" ");
+  function template(t) {
+    return String(t).replace(/[#?*]/g, (c) =>
+      c === "#" ? String(rnd(10)) :
+      c === "?" ? "abcdefghijklmnopqrstuvwxyz"[rnd(26)] :
+      "abcdefghijklmnopqrstuvwxyz0123456789"[rnd(36)]);
+  }
+  function genValue(rule) {
+    const t = rule.type || "fixed";
+    const v = rule.value || "";
+    if (t === "list") { const o = v.split(",").map((s) => s.trim()).filter(Boolean); return o.length ? pick(o) : ""; }
+    if (t === "number") { const m = v.split("-").map((s) => parseInt(s.trim(), 10)); const lo = isNaN(m[0]) ? 0 : m[0], hi = isNaN(m[1]) ? lo + 100 : m[1]; return String(lo + rnd(hi - lo + 1)); }
+    if (t === "regex") return template(v);
+    if (t === "lorem") return words(parseInt(v, 10) || 5);
+    if (t === "date") {
+      const parts = v.split(/\s*(?:to|\.\.|,)\s*/);
+      const p = (s, d) => { const t2 = Date.parse(s); return isNaN(t2) ? d : t2; };
+      const a = p(parts[0], Date.parse("2000-01-01")), b = p(parts[1], Date.now());
+      const d = new Date(Math.min(a, b) + Math.random() * Math.abs(b - a));
+      return d.toISOString().slice(0, 10);
+    }
+    return v; // fixed
   }
 
   const inputs = Array.from(document.querySelectorAll("input, textarea, select")).filter(fillable);
@@ -153,7 +212,7 @@ function fillPage(profile, rules) {
 
   // 1) Custom rules first (explicit user intent). match = CSS selector or keyword.
   for (const rule of rules) {
-    if (!rule || !rule.match || rule.value == null) continue;
+    if (!rule || !rule.match) continue;
     let targets = [];
     try { if (/[#.\[\]>:]/.test(rule.match)) targets = Array.from(document.querySelectorAll(rule.match)).filter(fillable); } catch {}
     if (!targets.length) {
@@ -162,7 +221,7 @@ function fillPage(profile, rules) {
     }
     for (const el of targets) {
       if (used.has(el)) continue;
-      setValue(el, rule.value); used.add(el); filled++;
+      setValue(el, genValue(rule)); used.add(el); filled++; // fresh value per field
     }
   }
 
@@ -188,7 +247,7 @@ function fillPage(profile, rules) {
 }
 
 // ---- Fake data filler. Fully self-contained (injected). ----
-function fakeFillPage(settings, scope) {
+function fakeFillPage(settings, scope, highlight, doSubmit) {
   const S = settings || {};
   scope = scope || "all";
   const mu = S.matchUsing || { id: true, name: true, label: true, ariaLabel: true, ariaLabelledby: true, class: false, placeholder: false };
@@ -259,12 +318,23 @@ function fakeFillPage(settings, scope) {
     return ignoreMatch.some((m) => h.includes(m));
   }
   function matchesAny(el, list) { const h = hints(el); return list.some((m) => h.includes(m)); }
+  function flash(el) {
+    if (!highlight) return;
+    try {
+      const prev = el.style.outline, prevT = el.style.transition;
+      el.style.transition = "outline .12s ease"; el.style.outline = "2px solid #22c55e";
+      setTimeout(() => { el.style.outline = prev; el.style.transition = prevT; }, 700);
+    } catch {}
+  }
+  const touched = new Set(); // forms that got filled (for auto-submit)
   function setValue(el, val) {
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
     setter.call(el, val);
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    flash(el);
+    if (el.form) touched.add(el.form);
   }
   // cap to the field's maxlength AND the global max length setting
   function clip(el, s) {
@@ -360,7 +430,7 @@ function fakeFillPage(settings, scope) {
       case "checkbox": {
         // "agree to terms" checkboxes are always checked; others random.
         el.checked = matchesAny(el, agreeMatch) ? true : Math.random() > 0.5;
-        el.dispatchEvent(new Event("change", { bubbles: true })); filled++; continue;
+        el.dispatchEvent(new Event("change", { bubbles: true })); flash(el); if (el.form) touched.add(el.form); filled++; continue;
       }
       case "radio": continue; // handled per-group below
       default: v = clip(el, textFor(el));
@@ -376,7 +446,7 @@ function fakeFillPage(settings, scope) {
   }
   for (const name in groups) {
     const chosen = pick(groups[name]);
-    chosen.checked = true; chosen.dispatchEvent(new Event("change", { bubbles: true })); filled++;
+    chosen.checked = true; chosen.dispatchEvent(new Event("change", { bubbles: true })); flash(chosen); if (chosen.form) touched.add(chosen.form); filled++;
   }
 
   // selects: random non-empty option
@@ -386,7 +456,17 @@ function fakeFillPage(settings, scope) {
     const opts = Array.from(sel.options).filter((o) => o.value !== "" && !o.disabled);
     if (!opts.length) continue;
     const o = pick(opts); sel.value = o.value;
-    sel.dispatchEvent(new Event("change", { bubbles: true })); filled++;
+    sel.dispatchEvent(new Event("change", { bubbles: true })); flash(sel); if (sel.form) touched.add(sel.form); filled++;
+  }
+
+  // optional auto-submit of the forms we filled
+  if (doSubmit && touched.size) {
+    setTimeout(() => {
+      for (const form of touched) {
+        const btn = form.querySelector('[type=submit], button:not([type])');
+        if (btn) btn.click(); else if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      }
+    }, 150);
   }
 
   return { filled };
