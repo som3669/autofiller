@@ -25,11 +25,17 @@
   "commands": {
     "fake-fill": {
       "suggested_key": { "default": "Alt+Shift+F" },
-      "description": "Fill the current page with fake test data"
+      "description": "Fill all inputs (fake data)"
+    },
+    "fill-form": {
+      "description": "Fill this form (fake data)"
+    },
+    "fill-input": {
+      "description": "Fill this input (fake data)"
     },
     "fill-page": {
       "suggested_key": { "default": "Alt+Shift+D" },
-      "description": "Fill the current page with my profile"
+      "description": "Fill with my profile"
     }
   }
 }

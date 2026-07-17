@@ -6,26 +6,44 @@ const DEFAULT_PROFILE = {
   company: "", website: ""
 };
 
+const DEFAULT_FAKE = {
+  passwordMode: "fixed",            // "fixed" | "random"
+  password: "Test@1234",            // used when passwordMode === "fixed"
+  ignoreMatch: ["captcha"],         // skip fields whose id/name/label match any
+  ignoreHidden: true,               // skip hidden/invisible fields
+  ignoreFilled: false,              // skip fields that already have content
+  confirmMatch: ["confirm", "reenter", "retype", "repeat", "secondary"],
+  agreeMatch: ["agree", "terms", "conditions"],
+  matchUsing: { id: true, name: true, label: true, ariaLabel: true, ariaLabelledby: true, class: false, placeholder: false },
+  maxLength: 20
+};
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: "fill", title: "AutoFiller: fill with my profile", contexts: ["page", "editable", "action"] });
-    chrome.contextMenus.create({ id: "fake", title: "AutoFiller: fill with fake data", contexts: ["page", "editable", "action"] });
+    chrome.contextMenus.create({ id: "fake", title: "Fill all inputs (fake data)", contexts: ["page", "editable", "action"] });
+    chrome.contextMenus.create({ id: "fake-form", title: "Fill this form (fake data)", contexts: ["editable"] });
+    chrome.contextMenus.create({ id: "fake-input", title: "Fill this input (fake data)", contexts: ["editable"] });
+    chrome.contextMenus.create({ id: "fill", title: "Fill with my profile", contexts: ["page", "editable", "action"] });
   });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab) return;
   if (info.menuItemId === "fill") fillTab(tab);
-  else if (info.menuItemId === "fake") fakeFillTab(tab);
+  else if (info.menuItemId === "fake") fakeFillTab(tab, "all");
+  else if (info.menuItemId === "fake-form") fakeFillTab(tab, "form");
+  else if (info.menuItemId === "fake-input") fakeFillTab(tab, "input");
 });
 chrome.commands.onCommand.addListener((cmd) => {
   if (cmd === "fill-page") fillActive();
-  else if (cmd === "fake-fill") fakeFillActive();
+  else if (cmd === "fake-fill") fakeFillActive("all");
+  else if (cmd === "fill-form") fakeFillActive("form");
+  else if (cmd === "fill-input") fakeFillActive("input");
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "fillActive") { fillActive().then((r) => sendResponse(r)); return true; }
-  if (msg.type === "fakeFillActive") { fakeFillActive().then((r) => sendResponse(r)); return true; }
+  if (msg.type === "fakeFillActive") { fakeFillActive(msg.scope || "all").then((r) => sendResponse(r)); return true; }
 });
 
 async function fillActive() {
@@ -51,17 +69,20 @@ async function fillTab(tab) {
   }
 }
 
-async function fakeFillActive() {
+async function fakeFillActive(scope) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab ? fakeFillTab(tab) : { filled: 0, error: "no tab" };
+  return tab ? fakeFillTab(tab, scope) : { filled: 0, error: "no tab" };
 }
 
-async function fakeFillTab(tab) {
+async function fakeFillTab(tab, scope) {
   if (!tab.url || !/^https?:/.test(tab.url)) return { filled: 0, error: "unsupported page" };
+  const { fakeSettings = {} } = await chrome.storage.sync.get({ fakeSettings: {} });
+  const settings = { ...DEFAULT_FAKE, ...fakeSettings, matchUsing: { ...DEFAULT_FAKE.matchUsing, ...(fakeSettings.matchUsing || {}) } };
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      func: fakeFillPage
+      func: fakeFillPage,
+      args: [settings, scope || "all"]
     });
     const filled = results.reduce((n, r) => n + ((r.result && r.result.filled) || 0), 0);
     return { filled };
@@ -166,8 +187,16 @@ function fillPage(profile, rules) {
   return { filled };
 }
 
-// ---- Fake data filler. Fully self-contained (injected). Skips passwords. ----
-function fakeFillPage() {
+// ---- Fake data filler. Fully self-contained (injected). ----
+function fakeFillPage(settings, scope) {
+  const S = settings || {};
+  scope = scope || "all";
+  const mu = S.matchUsing || { id: true, name: true, label: true, ariaLabel: true, ariaLabelledby: true, class: false, placeholder: false };
+  const ignoreMatch = (S.ignoreMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
+  const confirmMatch = (S.confirmMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
+  const agreeMatch = (S.agreeMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
+  const MAXLEN = S.maxLength > 0 ? S.maxLength : 20;
+
   const rnd = (n) => Math.floor(Math.random() * n);
   const pick = (a) => a[rnd(a.length)];
   const FIRST = ["Jane","John","Alex","Maria","Sam","Priya","Liam","Noah","Emma","Olivia","Raj","Sofia"];
@@ -192,18 +221,44 @@ function fakeFillPage() {
   const timeStr = () => `${pad(rnd(24))}:${pad(rnd(60))}`;
   const color = () => "#" + Array.from({ length: 6 }, () => "0123456789abcdef"[rnd(16)]).join("");
 
-  const SKIP_TYPES = ["password", "hidden", "submit", "button", "file", "image", "reset"];
+  // never touched
+  const SKIP_TYPES = ["hidden", "submit", "button", "file", "image", "reset"];
+  const passwordVal = () => S.passwordMode === "random"
+    ? Array.from({ length: 8 }, () => "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(55)]).join("")
+    : (S.password || "Test@1234");
 
   function labelText(el) {
     let t = "";
     if (el.id) { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (l) t += " " + l.textContent; }
     const w = el.closest("label"); if (w) t += " " + w.textContent;
-    if (el.getAttribute("aria-label")) t += " " + el.getAttribute("aria-label");
     return t;
   }
+  // Build match text from ONLY the attributes enabled in matchUsing.
   function hints(el) {
-    return [el.name, el.id, el.placeholder, el.getAttribute("autocomplete"), labelText(el)].filter(Boolean).join(" ").toLowerCase();
+    const parts = [];
+    if (mu.id) parts.push(el.id);
+    if (mu.name) parts.push(el.name);
+    if (mu.class) parts.push(el.className);
+    if (mu.placeholder) parts.push(el.placeholder);
+    if (mu.ariaLabel) parts.push(el.getAttribute("aria-label"));
+    if (mu.ariaLabelledby) {
+      const ref = el.getAttribute("aria-labelledby");
+      if (ref) ref.split(/\s+/).forEach((id) => { const e = document.getElementById(id); if (e) parts.push(e.textContent); });
+    }
+    if (mu.label) parts.push(labelText(el));
+    parts.push(el.getAttribute("autocomplete")); // always used for type detection
+    return parts.filter(Boolean).join(" ").toLowerCase();
   }
+  function isVisible(el) {
+    if (el.type === "hidden") return false;
+    return el.offsetParent !== null || el.getClientRects().length > 0;
+  }
+  function isIgnored(el) {
+    if (!ignoreMatch.length) return false;
+    const h = hints(el);
+    return ignoreMatch.some((m) => h.includes(m));
+  }
+  function matchesAny(el, list) { const h = hints(el); return list.some((m) => h.includes(m)); }
   function setValue(el, val) {
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
@@ -211,7 +266,25 @@ function fakeFillPage() {
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  function clip(el, s) { const m = parseInt(el.getAttribute("maxlength"), 10); return m > 0 ? String(s).slice(0, m) : s; }
+  // cap to the field's maxlength AND the global max length setting
+  function clip(el, s) {
+    const m = parseInt(el.getAttribute("maxlength"), 10);
+    let out = String(s);
+    if (m > 0) out = out.slice(0, m);
+    if (out.length > MAXLEN) out = out.slice(0, MAXLEN);
+    return out;
+  }
+  // shared skip check for any element
+  function skip(el) {
+    if (el.disabled || el.readOnly) return true;
+    if (S.ignoreHidden && !isVisible(el)) return true;
+    if (isIgnored(el)) return true;
+    return false;
+  }
+  function hasContent(el) {
+    if (el.type === "checkbox" || el.type === "radio") return false;
+    return !!(el.value && String(el.value).trim());
+  }
 
   function textFor(el) {
     const h = hints(el);
@@ -232,15 +305,41 @@ function fakeFillPage() {
   }
 
   let filled = 0;
+  let lastText = ""; // for confirmation fields (reuse the preceding value)
+
+  // Determine scope: whole page, the active field's form, or just the active field.
+  let inputEls, radioEls, selectEls;
+  const active = document.activeElement;
+  if (scope === "input") {
+    const arr = active && active.tagName && active !== document.body ? [active] : [];
+    inputEls = arr.filter((e) => e.tagName === "INPUT" || e.tagName === "TEXTAREA");
+    selectEls = arr.filter((e) => e.tagName === "SELECT");
+    radioEls = arr.filter((e) => e.type === "radio");
+  } else {
+    const root = scope === "form" ? ((active && active.closest && active.closest("form")) || document) : document;
+    inputEls = Array.from(root.querySelectorAll("input, textarea"));
+    radioEls = Array.from(root.querySelectorAll('input[type=radio]'));
+    selectEls = Array.from(root.querySelectorAll("select"));
+  }
 
   // inputs + textareas
-  for (const el of document.querySelectorAll("input, textarea")) {
-    if (el.disabled || el.readOnly) continue;
-    if (el.tagName === "TEXTAREA") { setValue(el, clip(el, paragraph())); filled++; continue; }
+  for (const el of inputEls) {
+    if (el.type === "hidden" || SKIP_TYPES.includes((el.type || "text").toLowerCase())) continue;
+    if (skip(el)) continue;
+    if (S.ignoreFilled && hasContent(el)) continue;
+
+    if (el.tagName === "TEXTAREA") { const v = clip(el, paragraph()); setValue(el, v); lastText = v; filled++; continue; }
+
     const type = (el.type || "text").toLowerCase();
-    if (SKIP_TYPES.includes(type)) continue;
+
+    // Confirmation field → reuse the previous value so "confirm" matches.
+    if (confirmMatch.length && matchesAny(el, confirmMatch) && lastText) {
+      setValue(el, lastText); filled++; continue;
+    }
+
     let v = null;
     switch (type) {
+      case "password": v = passwordVal(); break;
       case "email": v = email(); break;
       case "tel": v = phone(); break;
       case "url": v = "https://" + pick(DOMAIN); break;
@@ -258,27 +357,32 @@ function fakeFillPage() {
       case "week": v = weekStr(); break;
       case "time": v = timeStr(); break;
       case "color": v = color(); break;
-      case "checkbox": el.checked = Math.random() > 0.5; el.dispatchEvent(new Event("change", { bubbles: true })); filled++; continue;
+      case "checkbox": {
+        // "agree to terms" checkboxes are always checked; others random.
+        el.checked = matchesAny(el, agreeMatch) ? true : Math.random() > 0.5;
+        el.dispatchEvent(new Event("change", { bubbles: true })); filled++; continue;
+      }
       case "radio": continue; // handled per-group below
       default: v = clip(el, textFor(el));
     }
-    if (v != null) { setValue(el, v); filled++; }
+    if (v != null) { setValue(el, v); lastText = v; filled++; }
   }
 
-  // radio groups: pick one per name
+  // radio groups: pick one per name (respecting skips)
   const groups = {};
-  for (const r of document.querySelectorAll('input[type=radio]')) {
-    if (r.disabled) continue;
+  for (const r of radioEls) {
+    if (skip(r)) continue;
     (groups[r.name || r.id] = groups[r.name || r.id] || []).push(r);
   }
   for (const name in groups) {
-    const g = groups[name]; const chosen = pick(g);
+    const chosen = pick(groups[name]);
     chosen.checked = true; chosen.dispatchEvent(new Event("change", { bubbles: true })); filled++;
   }
 
   // selects: random non-empty option
-  for (const sel of document.querySelectorAll("select")) {
-    if (sel.disabled) continue;
+  for (const sel of selectEls) {
+    if (skip(sel)) continue;
+    if (S.ignoreFilled && sel.value) continue;
     const opts = Array.from(sel.options).filter((o) => o.value !== "" && !o.disabled);
     if (!opts.length) continue;
     const o = pick(opts); sel.value = o.value;
