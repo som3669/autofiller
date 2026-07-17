@@ -310,7 +310,18 @@ function fakeFillPage(settings, scope, highlight, doSubmit) {
   }
   function isVisible(el) {
     if (el.type === "hidden") return false;
+    if (typeof el.checkVisibility === "function") return el.checkVisibility({ checkOpacity: false, checkVisibilityCSS: true });
     return el.offsetParent !== null || el.getClientRects().length > 0;
+  }
+  // Collect matching elements from the document AND any open shadow roots.
+  function deepQuery(root, selector) {
+    const out = [];
+    const walk = (node) => {
+      try { node.querySelectorAll(selector).forEach((el) => out.push(el)); } catch {}
+      try { node.querySelectorAll("*").forEach((el) => { if (el.shadowRoot) walk(el.shadowRoot); }); } catch {}
+    };
+    walk(root);
+    return out;
   }
   function isIgnored(el) {
     if (!ignoreMatch.length) return false;
@@ -378,22 +389,25 @@ function fakeFillPage(settings, scope, highlight, doSubmit) {
   let lastText = ""; // for confirmation fields (reuse the preceding value)
 
   // Determine scope: whole page, the active field's form, or just the active field.
-  let inputEls, radioEls, selectEls;
+  let inputEls, radioEls, selectEls, editableEls;
   const active = document.activeElement;
   if (scope === "input") {
     const arr = active && active.tagName && active !== document.body ? [active] : [];
     inputEls = arr.filter((e) => e.tagName === "INPUT" || e.tagName === "TEXTAREA");
     selectEls = arr.filter((e) => e.tagName === "SELECT");
     radioEls = arr.filter((e) => e.type === "radio");
+    editableEls = arr.filter((e) => e.isContentEditable);
   } else {
     const root = scope === "form" ? ((active && active.closest && active.closest("form")) || document) : document;
-    inputEls = Array.from(root.querySelectorAll("input, textarea"));
-    radioEls = Array.from(root.querySelectorAll('input[type=radio]'));
-    selectEls = Array.from(root.querySelectorAll("select"));
+    inputEls = deepQuery(root, "input, textarea");
+    radioEls = inputEls.filter((e) => e.tagName === "INPUT" && (e.type || "").toLowerCase() === "radio");
+    selectEls = deepQuery(root, "select");
+    editableEls = deepQuery(root, '[contenteditable=""], [contenteditable="true"]');
   }
 
-  // inputs + textareas
+  // inputs + textareas — each wrapped so one bad field can't stop the rest
   for (const el of inputEls) {
+    try {
     if (el.type === "hidden" || SKIP_TYPES.includes((el.type || "text").toLowerCase())) continue;
     if (skip(el)) continue;
     if (S.ignoreFilled && hasContent(el)) continue;
@@ -436,27 +450,41 @@ function fakeFillPage(settings, scope, highlight, doSubmit) {
       default: v = clip(el, textFor(el));
     }
     if (v != null) { setValue(el, v); lastText = v; filled++; }
+    } catch {}
+  }
+
+  // contenteditable elements (rich text editors, some custom inputs)
+  for (const el of editableEls) {
+    try {
+      if (skip(el)) continue;
+      if (S.ignoreFilled && el.textContent && el.textContent.trim()) continue;
+      el.focus();
+      el.textContent = clip(el, sentence());
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      flash(el); filled++;
+    } catch {}
   }
 
   // radio groups: pick one per name (respecting skips)
   const groups = {};
   for (const r of radioEls) {
-    if (skip(r)) continue;
-    (groups[r.name || r.id] = groups[r.name || r.id] || []).push(r);
+    try { if (skip(r)) continue; (groups[r.name || r.id] = groups[r.name || r.id] || []).push(r); } catch {}
   }
   for (const name in groups) {
-    const chosen = pick(groups[name]);
-    chosen.checked = true; chosen.dispatchEvent(new Event("change", { bubbles: true })); flash(chosen); if (chosen.form) touched.add(chosen.form); filled++;
+    try { const chosen = pick(groups[name]); chosen.checked = true; chosen.dispatchEvent(new Event("change", { bubbles: true })); flash(chosen); if (chosen.form) touched.add(chosen.form); filled++; } catch {}
   }
 
   // selects: random non-empty option
   for (const sel of selectEls) {
+    try {
     if (skip(sel)) continue;
     if (S.ignoreFilled && sel.value) continue;
     const opts = Array.from(sel.options).filter((o) => o.value !== "" && !o.disabled);
     if (!opts.length) continue;
     const o = pick(opts); sel.value = o.value;
     sel.dispatchEvent(new Event("change", { bubbles: true })); flash(sel); if (sel.form) touched.add(sel.form); filled++;
+    } catch {}
   }
 
   // optional auto-submit of the forms we filled
