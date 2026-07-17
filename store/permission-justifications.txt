@@ -1,9 +1,10 @@
 CHROME WEB STORE — PRIVACY PRACTICES TAB (AutoFiller)
 
 --- Single purpose ---
-AutoFiller fills web forms with the user's saved profile and custom field rules,
-on demand. When the user clicks the button, presses the shortcut, or uses the
-right-click menu, it fills matching fields on the current page.
+AutoFiller fills web forms on demand — either with realistic fake test data
+(default, for developers/QA testing forms) or with the user's saved profile.
+When the user clicks the button, presses the shortcut, or uses the right-click
+menu, it fills fields on the current page.
 
 --- Permission justifications ---
 

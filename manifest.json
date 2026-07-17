@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoFiller",
   "version": "1.0.0",
-  "description": "Fill forms in one click. Save your profile and custom field rules, then fill any page — passwords never touched.",
+  "description": "Fill forms in one click with realistic fake test data — or your own saved profile. Built for developers, QA, and fast form testing. Passwords never touched.",
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
   "action": {
     "default_popup": "popup.html",
@@ -23,9 +23,13 @@
   "options_page": "options.html",
   "background": { "service_worker": "sw.js" },
   "commands": {
-    "fill-page": {
+    "fake-fill": {
       "suggested_key": { "default": "Alt+Shift+F" },
-      "description": "Fill the current page"
+      "description": "Fill the current page with fake test data"
+    },
+    "fill-page": {
+      "suggested_key": { "default": "Alt+Shift+D" },
+      "description": "Fill the current page with my profile"
     }
   }
 }

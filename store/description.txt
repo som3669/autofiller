@@ -1,23 +1,24 @@
-Tired of retyping the same details into every form? AutoFiller fills web forms in one click — using a profile you set up once. Your name, email, phone, and address go in instantly, so checkout pages, sign-ups, and applications take seconds.
+Testing a form? Fill it instantly with one click. AutoFiller populates every field on the page with realistic fake data — names, emails, phone numbers, dates, numbers, dropdowns, checkboxes, and more — so developers and QA can test forms in seconds instead of typing junk by hand.
 
-AutoFiller does nothing until you tell it to. Click the button, press the shortcut, or use the right-click menu, and it fills the current page. Nothing runs in the background, and it requests no broad access to your browsing.
+Need real data instead? Save your own profile and fill with that in one click too.
 
-★ WHY AUTOFILLER
+AutoFiller does nothing until you tell it to. Click the button, press the shortcut, or use the right-click menu — it only touches a page when you ask, and requests no broad access to your browsing.
 
-• One click fills the whole form
-• Set your details once, reuse everywhere
-• Works with modern React and Vue forms
-• No passwords ever stored or filled
-• Nothing runs until you act — private by design
+★ TWO MODES
+
+• Fake data (default) — fills the whole form with realistic random values for testing
+• My profile — fills name, email, phone, address, company from data you save
+
+★ FIELD TYPES COVERED
+
+Text, email, tel, number (respects min/max), URL, date, month, week, time, color, range, textarea, select dropdowns, radio buttons, and checkboxes. Field length limits are respected.
 
 ★ FEATURES
 
-• Save a profile: name, email, phone, full address, company, website
-• Fill on click, with Alt+Shift+F, or from the right-click menu
-• Custom field rules — match any field by its name, label, placeholder, or a CSS
-  selector, and give it a value
-• Scope a rule to one site or apply it everywhere
-• Smart field detection using autocomplete attributes, input types, and labels
+• Fill on click, with a keyboard shortcut, or from the right-click menu
+• Realistic fake data that passes most form validation
+• Custom field rules — match any field by name, label, placeholder, or CSS selector
+• Smart detection using autocomplete attributes, input types, and labels
 • Framework-safe filling that React and Vue forms recognize
 
 ★ PASSWORDS
@@ -26,7 +27,6 @@ AutoFiller never stores or fills passwords. Password fields are always skipped.
 
 ★ PRIVACY
 
-Everything stays on your device. AutoFiller sends no data anywhere. Your profile
-is saved with Chrome's own storage and never leaves your browser.
+Everything stays on your device. AutoFiller sends no data anywhere. Any profile you save is stored with Chrome's own storage and never leaves your browser.
 
-Set up your profile once and let AutoFiller do the typing.
+Perfect for developers and testers who fill forms all day.

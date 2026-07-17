@@ -1,13 +1,16 @@
 const $ = (id) => document.getElementById(id);
 
-$("fill").addEventListener("click", () => {
+function runFill(type) {
   $("status").textContent = "Filling…";
-  chrome.runtime.sendMessage({ type: "fillActive" }, (r) => {
+  chrome.runtime.sendMessage({ type }, (r) => {
     if (!r) { $("status").textContent = "No response"; return; }
     if (r.error) { $("status").textContent = "⚠ " + r.error; return; }
     $("status").textContent = r.filled ? `✓ Filled ${r.filled} field${r.filled > 1 ? "s" : ""}` : "No matching fields found";
   });
-});
+}
+
+$("fake").addEventListener("click", () => runFill("fakeFillActive"));
+$("fill").addEventListener("click", () => runFill("fillActive"));
 
 async function summary() {
   const { profile = {}, rules = [] } = await chrome.storage.sync.get({ profile: {}, rules: [] });
