@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AutoFiller",
   "version": "1.0.0",
-  "description": "Fill forms in one click with realistic fake test data — or your own saved profile. Built for developers, QA, and fast form testing. Passwords never touched.",
+  "description": "One-click form filler with realistic fake data or your saved profile. Built for developers and QA testing.",
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
   "action": {
     "default_title": "AutoFiller — click to fill with fake data",
