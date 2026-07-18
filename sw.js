@@ -25,7 +25,9 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({ id: "fake-form", title: "Fill this form (fake data)", contexts: ["editable"] });
     chrome.contextMenus.create({ id: "fake-input", title: "Fill this input (fake data)", contexts: ["editable"] });
     chrome.contextMenus.create({ id: "fake-submit", title: "Fill all & submit", contexts: ["page", "editable", "action"] });
+    chrome.contextMenus.create({ id: "fake-invalid", title: "Fill with INVALID data (test validation)", contexts: ["page", "editable", "action"] });
     chrome.contextMenus.create({ id: "fill", title: "Fill with my profile", contexts: ["page", "editable", "action"] });
+    chrome.contextMenus.create({ id: "inspect", title: "Inspect fields (click to copy as rule)", contexts: ["page", "editable", "action"] });
     chrome.contextMenus.create({ id: "sep", type: "separator", contexts: ["action"] });
     chrome.contextMenus.create({ id: "opts", title: "Settings…", contexts: ["action"] });
   });
@@ -39,6 +41,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   else if (info.menuItemId === "fake-form") fakeFillTab(tab, "form", false);
   else if (info.menuItemId === "fake-input") fakeFillTab(tab, "input", false);
   else if (info.menuItemId === "fake-submit") fakeFillTab(tab, "all", true);
+  else if (info.menuItemId === "fake-invalid") fakeFillTab(tab, "all", false, "invalid");
+  else if (info.menuItemId === "inspect") inspectTab(tab);
 });
 chrome.commands.onCommand.addListener((cmd) => {
   if (cmd === "fill-page") fillActive();
@@ -52,8 +56,67 @@ chrome.action.onClicked.addListener((tab) => { if (tab) fakeFillTab(tab, "all", 
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "fillActive") { fillActive().then((r) => sendResponse(r)); return true; }
-  if (msg.type === "fakeFillActive") { fakeFillActive(msg.scope || "all", !!msg.doSubmit).then((r) => sendResponse(r)); return true; }
+  if (msg.type === "fakeFillActive") { fakeFillActive(msg.scope || "all", !!msg.doSubmit, msg.mode || "valid").then((r) => sendResponse(r)); return true; }
+  if (msg.type === "addRule" && msg.rule) {
+    (async () => {
+      const { rules = [] } = await chrome.storage.sync.get({ rules: [] });
+      rules.push(msg.rule);
+      await chrome.storage.sync.set({ rules });
+      sendResponse({ ok: true, count: rules.length });
+    })();
+    return true;
+  }
 });
+
+async function inspectTab(tab) {
+  if (!tab || !tab.url || !/^https?:/.test(tab.url)) return;
+  try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: inspectPage }); } catch {}
+}
+
+// Injected inspector: click a field to save it as a custom rule.
+function inspectPage() {
+  if (window.__afInspect) { window.__afInspect.stop(); return; }
+  const tip = document.createElement("div");
+  tip.style.cssText = "position:fixed;z-index:2147483647;background:#111;color:#fff;font:12px system-ui;padding:8px 10px;border-radius:8px;pointer-events:none;max-width:280px;box-shadow:0 4px 16px rgba(0,0,0,.4)";
+  tip.textContent = "AutoFiller inspect: click a field to save as rule · Esc to stop";
+  document.body.appendChild(tip);
+  let last = null;
+  function ident(el) {
+    return el.name || el.id || (el.getAttribute("aria-label")) || (el.placeholder) || "";
+  }
+  function move(e) {
+    const el = e.target;
+    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) {
+      if (last) last.style.outline = "";
+      last = el; el.style.outline = "2px solid #a855f7";
+      tip.textContent = `${el.tagName.toLowerCase()}${el.type ? "[" + el.type + "]" : ""}  name="${el.name || ""}"  id="${el.id || ""}"  → click to save rule`;
+    }
+    tip.style.left = Math.min(e.clientX + 12, innerWidth - 290) + "px";
+    tip.style.top = (e.clientY + 14) + "px";
+  }
+  function click(e) {
+    const el = e.target;
+    if (!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
+    e.preventDefault(); e.stopPropagation();
+    const match = ident(el);
+    if (!match) { tip.textContent = "No name/id/label to match — skipped"; return; }
+    chrome.runtime.sendMessage({ type: "addRule", rule: { match, type: "fixed", value: "", site: location.hostname } }, (r) => {
+      tip.textContent = `Saved rule for "${match}" (${r && r.count} total). Edit its value in Settings.`;
+    });
+  }
+  function key(e) { if (e.key === "Escape") stop(); }
+  function stop() {
+    document.removeEventListener("mousemove", move, true);
+    document.removeEventListener("click", click, true);
+    document.removeEventListener("keydown", key, true);
+    if (last) last.style.outline = "";
+    tip.remove(); window.__afInspect = null;
+  }
+  document.addEventListener("mousemove", move, true);
+  document.addEventListener("click", click, true);
+  document.addEventListener("keydown", key, true);
+  window.__afInspect = { stop };
+}
 
 // Active profile (supports multiple named profiles; falls back to legacy single profile).
 async function getActiveProfile() {
@@ -92,12 +155,12 @@ async function fillTab(tab) {
   }
 }
 
-async function fakeFillActive(scope, doSubmit) {
+async function fakeFillActive(scope, doSubmit, mode) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab ? fakeFillTab(tab, scope, doSubmit) : { filled: 0, error: "no tab" };
+  return tab ? fakeFillTab(tab, scope, doSubmit, mode) : { filled: 0, error: "no tab" };
 }
 
-async function fakeFillTab(tab, scope, doSubmit) {
+async function fakeFillTab(tab, scope, doSubmit, mode) {
   if (!tab.url || !/^https?:/.test(tab.url)) return { filled: 0, error: "unsupported page" };
   const { fakeSettings = {} } = await chrome.storage.sync.get({ fakeSettings: {} });
   const settings = { ...DEFAULT_FAKE, ...fakeSettings, matchUsing: { ...DEFAULT_FAKE.matchUsing, ...(fakeSettings.matchUsing || {}) } };
@@ -105,7 +168,7 @@ async function fakeFillTab(tab, scope, doSubmit) {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
       func: fakeFillPage,
-      args: [settings, scope || "all", settings.highlight !== false, !!doSubmit]
+      args: [settings, scope || "all", settings.highlight !== false, !!doSubmit, mode || "valid"]
     });
     const filled = results.reduce((n, r) => n + ((r.result && r.result.filled) || 0), 0);
     return { filled };
@@ -247,41 +310,73 @@ function fillPage(profile, rules, highlight) {
 }
 
 // ---- Fake data filler. Fully self-contained (injected). ----
-function fakeFillPage(settings, scope, highlight, doSubmit) {
+function fakeFillPage(settings, scope, highlight, doSubmit, mode) {
   const S = settings || {};
   scope = scope || "all";
+  mode = mode || "valid";
   const mu = S.matchUsing || { id: true, name: true, label: true, ariaLabel: true, ariaLabelledby: true, class: false, placeholder: false };
   const ignoreMatch = (S.ignoreMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
   const confirmMatch = (S.confirmMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
   const agreeMatch = (S.agreeMatch || []).map((x) => x.toLowerCase()).filter(Boolean);
   const MAXLEN = S.maxLength > 0 ? S.maxLength : 20;
 
+  const invalid = mode === "invalid";
   const rnd = (n) => Math.floor(Math.random() * n);
   const pick = (a) => a[rnd(a.length)];
   const FIRST = ["Jane","John","Alex","Maria","Sam","Priya","Liam","Noah","Emma","Olivia","Raj","Sofia"];
   const LAST = ["Smith","Doe","Patel","Garcia","Khan","Lee","Brown","Wilson","Novak","Kumar","Silva","Adams"];
   const DOMAIN = ["example.com","test.com","mail.com","demo.org"];
-  const CITY = ["Austin","Denver","Portland","Kathmandu","Berlin","Toronto","Leeds","Pune"];
-  const STATE = ["CA","TX","NY","WA","CO","FL"];
+  // coherent city/state/zip tuples so address data is consistent
+  const PLACES = [
+    { city: "Austin", state: "TX", zip: "73301" }, { city: "Denver", state: "CO", zip: "80201" },
+    { city: "Seattle", state: "WA", zip: "98101" }, { city: "Miami", state: "FL", zip: "33101" },
+    { city: "New York", state: "NY", zip: "10001" }, { city: "Los Angeles", state: "CA", zip: "90001" }
+  ];
+  const AREA = ["212","305","415","512","646","720","206"];
   const COMPANY = ["Acme Inc","Globex","Initech","Umbrella","Hooli","Stark Co"];
   const WORDS = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore".split(" ");
   const words = (n) => Array.from({ length: n }, () => pick(WORDS)).join(" ");
   const sentence = () => { const s = words(6 + rnd(8)); return s.charAt(0).toUpperCase() + s.slice(1) + "."; };
   const paragraph = () => Array.from({ length: 2 + rnd(2) }, sentence).join(" ");
-
-  const firstName = () => pick(FIRST);
-  const lastName = () => pick(LAST);
-  const email = () => (pick(FIRST) + "." + pick(LAST) + rnd(99)).toLowerCase() + "@" + pick(DOMAIN);
-  const phone = () => "+1 " + (200 + rnd(700)) + " " + (100 + rnd(900)) + " " + (1000 + rnd(9000));
   const pad = (n) => String(n).padStart(2, "0");
-  const dateStr = () => `${2000 + rnd(25)}-${pad(1 + rnd(12))}-${pad(1 + rnd(28))}`;
+
+  // ---- one consistent identity for the whole page ----
+  const ID = {};
+  ID.first = pick(FIRST); ID.last = pick(LAST);
+  ID.domain = pick(DOMAIN);
+  ID.email = (ID.first + "." + ID.last + rnd(99)).toLowerCase() + "@" + ID.domain;
+  ID.place = pick(PLACES);
+  ID.area = pick(AREA);
+  ID.phone = `+1 (${ID.area}) ${100 + rnd(900)}-${1000 + rnd(9000)}`;
+  ID.street = (1 + rnd(999)) + " " + ID.last + " St";
+  ID.company = pick(COMPANY);
+  ID.birthYear = 1960 + rnd(45);
+
+  // Luhn-valid card number for a given prefix + length
+  function luhnCard(prefix, len) {
+    let num = prefix.split("");
+    while (num.length < len - 1) num.push(String(rnd(10)));
+    let sum = 0, alt = true;
+    for (let i = num.length - 1; i >= 0; i--) { let d = +num[i]; if (alt) { d *= 2; if (d > 9) d -= 9; } sum += d; alt = !alt; }
+    num.push(String((10 - (sum % 10)) % 10));
+    return num.join("");
+  }
+  ID.card = luhnCard("4", 16); // Visa test, checksum valid
+  ID.cvv = String(100 + rnd(900));
+  ID.cardExp = `${pad(1 + rnd(12))}/${pad((new Date().getFullYear() + 1 + rnd(4)) % 100)}`;
+
+  const firstName = () => ID.first;
+  const lastName = () => ID.last;
+  const email = () => invalid ? "not-an-email" : ID.email;
+  const phone = () => invalid ? "abc-phone" : ID.phone;
+  const dateStr = () => `${1970 + rnd(50)}-${pad(1 + rnd(12))}-${pad(1 + rnd(28))}`;
   const monthStr = () => `${2000 + rnd(25)}-${pad(1 + rnd(12))}`;
   const weekStr = () => `${2000 + rnd(25)}-W${pad(1 + rnd(52))}`;
   const timeStr = () => `${pad(rnd(24))}:${pad(rnd(60))}`;
   const color = () => "#" + Array.from({ length: 6 }, () => "0123456789abcdef"[rnd(16)]).join("");
 
-  // never touched
-  const SKIP_TYPES = ["hidden", "submit", "button", "file", "image", "reset"];
+  // never touched (file is handled specially below)
+  const SKIP_TYPES = ["hidden", "submit", "button", "image", "reset"];
   const passwordVal = () => S.passwordMode === "random"
     ? Array.from({ length: 8 }, () => "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"[rnd(55)]).join("")
     : (S.password || "Test@1234");
@@ -369,18 +464,22 @@ function fakeFillPage(settings, scope, highlight, doSubmit) {
 
   function textFor(el) {
     const h = hints(el);
+    // credit-card family — valid (Luhn) unless invalid mode
+    if (/card[ _-]?number|cc[ _-]?number|credit[ _-]?card|cardnum/.test(h)) return invalid ? "1234 5678 9012 3456" : ID.card;
+    if (/cvv|cvc|security[ _-]?code|card[ _-]?code/.test(h)) return invalid ? "99" : ID.cvv;
+    if (/exp(iry|iration)?|cc[ _-]?exp/.test(h)) return ID.cardExp;
     if (/e-?mail/.test(h)) return email();
     if (/phone|mobile|tel/.test(h)) return phone();
     if (/first ?name|given|fname/.test(h)) return firstName();
     if (/last ?name|surname|family|lname/.test(h)) return lastName();
     if (/full ?name|your name|(^|\b)name\b/.test(h)) return firstName() + " " + lastName();
-    if (/city|town/.test(h)) return pick(CITY);
-    if (/state|province|region/.test(h)) return pick(STATE);
-    if (/zip|postal|postcode/.test(h)) return String(10000 + rnd(89999));
-    if (/company|organi|employer/.test(h)) return pick(COMPANY);
-    if (/address|street/.test(h)) return (1 + rnd(999)) + " " + pick(LAST) + " St";
-    if (/url|website|web ?site/.test(h)) return "https://" + pick(DOMAIN);
-    if (/country/.test(h)) return pick(["United States","Canada","Nepal","Germany","India"]);
+    if (/city|town/.test(h)) return ID.place.city;
+    if (/state|province|region/.test(h)) return ID.place.state;
+    if (/zip|postal|postcode/.test(h)) return invalid ? "ABCDE" : ID.place.zip;
+    if (/company|organi|employer/.test(h)) return ID.company;
+    if (/address|street/.test(h)) return ID.street;
+    if (/url|website|web ?site/.test(h)) return invalid ? "notaurl" : "https://" + ID.domain;
+    if (/country/.test(h)) return "United States";
     if (/age|number|qty|quantity|amount/.test(h)) return String(1 + rnd(100));
     return words(1 + rnd(2));
   }
@@ -421,15 +520,29 @@ function fakeFillPage(settings, scope, highlight, doSubmit) {
       setValue(el, lastText); filled++; continue;
     }
 
+    // file inputs: attach a dummy test file (can't be done via value)
+    if (type === "file") {
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(new File(["AutoFiller test file"], "autofiller-test.txt", { type: "text/plain" }));
+        el.files = dt.files;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        flash(el); if (el.form) touched.add(el.form); filled++;
+      } catch {}
+      continue;
+    }
+
     let v = null;
     switch (type) {
       case "password": v = passwordVal(); break;
       case "email": v = email(); break;
       case "tel": v = phone(); break;
-      case "url": v = "https://" + pick(DOMAIN); break;
+      case "url": v = invalid ? "notaurl" : "https://" + ID.domain; break;
       case "number": {
         const min = parseFloat(el.min), max = parseFloat(el.max);
         const lo = isNaN(min) ? 0 : min, hi = isNaN(max) ? lo + 100 : max;
+        if (invalid) { v = String((isNaN(max) ? hi : max) + 9999); break; } // out of range
         v = String(Math.floor(lo + Math.random() * (hi - lo + 1))); break;
       }
       case "range": {
