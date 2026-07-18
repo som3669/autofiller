@@ -267,6 +267,15 @@ $("importFFFile").addEventListener("change", async (e) => {
   e.target.value = "";
 });
 
+// ---- Tab navigation ----
+document.querySelectorAll("#tabnav .tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const name = btn.dataset.tab;
+    document.querySelectorAll("#tabnav .tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll("section.tab").forEach((s) => s.classList.toggle("active", s.dataset.tab === name));
+  });
+});
+
 load();
 loadFake();
 loadShortcuts();

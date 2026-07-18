@@ -42,6 +42,13 @@
     .saved.show { opacity:1; transform:translateX(-50%) translateY(0); }
     button:focus-visible, input:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
     .chk { display:flex; gap:6px; align-items:center; font-size:13px; color:var(--text); }
+    .tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--brd); margin-bottom:20px; }
+    .tab-btn { background:transparent; border:0; padding:10px 14px; font:600 13px system-ui,sans-serif; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+    .tab-btn:hover { color:var(--text); }
+    .tab-btn.active { color:var(--brand); border-bottom-color:var(--brand); }
+    section.tab { display:none; }
+    section.tab.active { display:block; }
+    section.tab h2:first-child { margin-top:0; }
   </style>
 </head>
 <body>
@@ -50,10 +57,19 @@
       <div class="logo">A</div>
       <div>
         <h1>AutoFiller Settings</h1>
-        <p>Changes save automatically. Passwords are never stored or filled.</p>
+        <p>Changes save automatically.</p>
       </div>
     </div>
 
+    <nav class="tabs" id="tabnav">
+      <button class="tab-btn active" data-tab="general">General</button>
+      <button class="tab-btn" data-tab="custom">Custom Fields</button>
+      <button class="tab-btn" data-tab="shortcuts">Keyboard Shortcuts</button>
+      <button class="tab-btn" data-tab="backup">Backup &amp; Restore</button>
+      <button class="tab-btn" data-tab="help">Help</button>
+    </nav>
+
+    <section class="tab active" data-tab="general">
     <h2>Your profile</h2>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap">
       <label for="profileSel" style="color:var(--muted); font-size:12px">Profile:</label>
@@ -132,11 +148,16 @@
       <input type="text" id="fMaxLen" inputmode="numeric" placeholder="20">
     </div>
 
+    </section>
+
+    <section class="tab" data-tab="custom">
     <h2>Custom field rules</h2>
-    <p class="hint">Fill any field the profile doesn't cover. <strong>Match</strong> = part of the field's name/label/placeholder (e.g. <code>coupon</code>) or a CSS selector (e.g. <code>#promo</code>). <strong>Site</strong> is optional — leave blank to apply everywhere.</p>
+    <p class="hint">Fill any field the profile doesn't cover. <strong>Match</strong> = part of the field's name/label/placeholder (e.g. <code>coupon</code>) or a CSS selector (e.g. <code>#promo</code>). Pick a <strong>type</strong> to generate values. <strong>Site</strong> is optional — leave blank to apply everywhere.</p>
     <div id="ruleList"></div>
     <button class="btn ghost" id="ruleAdd">+ Add rule</button>
+    </section>
 
+    <section class="tab" data-tab="shortcuts">
     <h2>Keyboard shortcuts</h2>
     <table style="width:100%; border-collapse:collapse; font-size:13px">
       <tbody id="shortcutRows">
@@ -147,7 +168,9 @@
       </tbody>
     </table>
     <p class="hint" style="margin-top:8px"><a href="#" id="openShortcuts" style="color:var(--brand); text-decoration:none; font-weight:500">Change keyboard shortcuts →</a></p>
+    </section>
 
+    <section class="tab" data-tab="backup">
     <h2>Backup and restore</h2>
     <p class="hint">Export all your settings (profile, rules, fake-data options) to a file, or import them on another device.</p>
     <div style="display:flex; gap:10px">
@@ -157,6 +180,23 @@
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <input type="file" id="importFFFile" accept="application/json,.json" hidden>
     </div>
+    </section>
+
+    <section class="tab" data-tab="help">
+    <h2>Help</h2>
+    <p style="font-size:13px; line-height:1.6">
+      <strong>Fill a form:</strong> click the AutoFiller toolbar icon to fill the whole page with fake data.
+    </p>
+    <ul style="font-size:13px; line-height:1.7; padding-left:18px">
+      <li><strong>Toolbar icon</strong> — fill all inputs with fake data</li>
+      <li><strong>Right-click a page/field</strong> — fill all, fill this form, fill this input, fill &amp; submit, or fill with your profile</li>
+      <li><strong>Shortcuts</strong> — <code>Alt+Shift+F</code> fake fill, <code>Alt+Shift+D</code> profile fill (rebindable)</li>
+      <li><strong>General tab</strong> — your profile(s) + fake-data options</li>
+      <li><strong>Custom Fields tab</strong> — rules for specific fields (fixed, list, number, date, regex, lorem)</li>
+      <li><strong>Backup tab</strong> — export/import settings, or import from Fake Filler</li>
+    </ul>
+    <p style="font-size:13px; color:var(--muted)">Passwords are only filled in fake mode with a dummy value — real passwords are never stored. Profile mode never touches password fields.</p>
+    </section>
   </div>
 
   <div class="saved" id="saved">Saved ✓</div>
